@@ -2,7 +2,7 @@
 
 Mac-first command-line tooling for preparing building photo sets and sending them through Bentley iTwin Reality Management / Reality Modeling APIs.
 
-## Direction
+## Current scope
 
 The pipeline is intentionally split into stages:
 
@@ -12,54 +12,90 @@ The pipeline is intentionally split into stages:
 4. Create a Reality Modeling workspace and processing job.
 5. Track processing and retrieve generated reality-model outputs.
 
-The first implementation focuses on stages 1–2 so upload can be tested independently before submitting processing jobs.
+This bootstrap implements stages 1–2 only. Uploading does **not** submit a Reality Modeling processing job.
 
-## Setup
+## Requirements
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e '.[dev]'
-```
+- macOS (the CLI should also work on Linux/Windows)
+- Node.js 20+
+- A Bentley iTwin Platform application registered as **Desktop/Mobile**
+- The application's redirect URI configured for the local callback used by Bentley's CLI authorization client (default: `http://localhost:3000/signin-callback`)
 
-## Inspect photos
-
-```bash
-capture inspect ~/Pictures/building
-```
-
-The command reports photo count, measured gigapixels, available GPS metadata, camera/focal-length metadata, and HEIC/HEIF files that should be converted before upload.
-
-For machine-readable output:
+## Install
 
 ```bash
-capture inspect ~/Pictures/building --json
+npm install
+npm run build
+npm link
 ```
 
-## Upload to iTwin Reality Management
+During development you can skip the build/link step and use `npm run capture -- ...`.
 
-For the first development pass, the CLI accepts an existing Bentley user access token through `ITWIN_ACCESS_TOKEN`. Bentley API calls require the `itwin-platform` scope.
+## Authentication
+
+Set your Bentley application client id:
 
 ```bash
-export ITWIN_ACCESS_TOKEN='...'
-export ITWIN_ID='...'
-
-capture upload ~/Pictures/building \
-  --name 'Building exterior - August 2026'
+export ITWIN_CLIENT_ID="your-client-id"
 ```
 
-Before touching Bentley, validate the command locally with:
+Then sign in:
 
 ```bash
-capture upload ~/Pictures/building \
-  --name 'Building exterior - August 2026' \
-  --dry-run
+capture auth
 ```
 
-`capture upload` creates `CCImageCollection` reality data, obtains a write SAS URL from Reality Management, uploads the photos to its Azure Blob container, and marks the reality data as no longer authoring when complete. It does **not** create or submit a Reality Modeling job.
+The CLI uses `@itwin/node-cli-authorization`, which opens the system browser for Authorization Code + PKCE and reuses its refresh-token cache on subsequent runs.
 
-HEIC/HEIF upload is intentionally blocked for now. Automatic conversion to JPEG is a good next addition for a Mac-first workflow.
+For CI or debugging, `ITWIN_ACCESS_TOKEN` can be supplied explicitly; when present it bypasses browser authentication.
 
-## Reality Modeling caveat
+Optional authentication settings:
 
-Bentley's current Reality Modeling flow requires a `CCOrientations` input alongside the `CCImageCollection` for job creation. That orientation/calibration stage is the next pipeline milestone; the CLI does not pretend that raw image upload alone is enough to submit a valid modeling job.
+```bash
+export ITWIN_REDIRECT_URI="http://localhost:3000/signin-callback"
+export ITWIN_SCOPE="itwin-platform"
+```
+
+## Inspect JPEGs
+
+```bash
+capture inspect /path/to/building-photos
+```
+
+Machine-readable output:
+
+```bash
+capture inspect /path/to/building-photos --json
+```
+
+## Upload a photo collection
+
+Set the iTwin id once:
+
+```bash
+export ITWIN_ID="your-itwin-id"
+```
+
+Validate first without creating anything in Bentley:
+
+```bash
+capture upload /path/to/building-photos --name "Building exterior" --dry-run
+```
+
+Then upload:
+
+```bash
+capture upload /path/to/building-photos --name "Building exterior"
+```
+
+The command creates a `CCImageCollection`, obtains Bentley's Azure write-access URL, uploads the source photos, and marks the Reality Data as no longer authoring.
+
+JPEG/JPG is supported in this first pass. HEIC/HEIF is detected but blocked from upload until we add and verify a conversion path.
+
+## Environment
+
+- `ITWIN_CLIENT_ID` — Bentley Desktop/Mobile application client id
+- `ITWIN_ID` — default iTwin id
+- `ITWIN_REDIRECT_URI` — optional localhost OAuth callback override
+- `ITWIN_SCOPE` — optional OAuth scope override; defaults to `itwin-platform`
+- `ITWIN_ACCESS_TOKEN` — optional explicit access token; bypasses browser auth
