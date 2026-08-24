@@ -1,8 +1,9 @@
 import path from "node:path";
 import { ContainerClient } from "@azure/storage-blob";
+import { getBentleyConfig } from "./config.js";
 
-const API_BASE = "https://api.bentley.com";
-const ACCEPT = "application/vnd.bentley.itwin-platform.v1+json";
+const ACCEPT_V1 = "application/vnd.bentley.itwin-platform.v1+json";
+const ACCEPT_V2 = "application/vnd.bentley.itwin-platform.v2+json";
 
 export interface RealityData {
   id: string;
@@ -11,9 +12,37 @@ export interface RealityData {
   [key: string]: unknown;
 }
 
+export type RealityModelingJobState =
+  | "Queued"
+  | "Active"
+  | "TerminatingOnCancel"
+  | "TerminatingOnFailure"
+  | "Cancelled"
+  | "Failed"
+  | "Success";
+
+export interface RealityModelingJob {
+  id: string;
+  state: RealityModelingJobState;
+  type: string;
+  iTwinId: string;
+  name?: string;
+  specifications: Record<string, unknown>;
+  executionInfo?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+export interface RealityModelingJobProgress {
+  percentage?: number;
+  state?: RealityModelingJobState;
+}
+
 export class BentleyClient {
-  public constructor(private readonly accessToken: string) {
+  private readonly apiBaseUrl: string;
+
+  public constructor(private readonly accessToken: string, apiBaseUrl?: string) {
     if (!accessToken.trim()) throw new Error("Bentley access token is empty.");
+    this.apiBaseUrl = apiBaseUrl?.replace(/\/$/, "") || getBentleyConfig().apiBaseUrl;
   }
 
   public async createImageCollection(itwinId: string, displayName: string): Promise<RealityData> {
@@ -59,15 +88,52 @@ export class BentleyClient {
     return realityDataFrom(payload, "Finalize response was not a reality data object.");
   }
 
-  private async request(endpoint: string, init: RequestInit = {}): Promise<Record<string, unknown>> {
-    const response = await fetch(`${API_BASE}${endpoint}`, {
+  public async createRealityModelingJob(
+    job: Record<string, unknown>,
+  ): Promise<RealityModelingJob> {
+    const payload = await this.request(
+      "/reality-modeling/jobs",
+      { method: "POST", body: JSON.stringify(job) },
+      ACCEPT_V2,
+    );
+    return jobFrom(payload);
+  }
+
+  public async getRealityModelingJob(jobId: string): Promise<RealityModelingJob> {
+    const payload = await this.request(
+      `/reality-modeling/jobs/${encodeURIComponent(jobId)}`,
+      {},
+      ACCEPT_V2,
+    );
+    return jobFrom(payload);
+  }
+
+  public async getRealityModelingJobProgress(
+    jobId: string,
+  ): Promise<RealityModelingJobProgress> {
+    const payload = await this.request(
+      `/reality-modeling/jobs/${encodeURIComponent(jobId)}/progress`,
+      {},
+      ACCEPT_V2,
+    );
+    const progress = objectValue(payload.progress);
+    if (!progress) throw new Error("Reality Modeling progress response was malformed.");
+    return progress as RealityModelingJobProgress;
+  }
+
+  private async request(
+    endpoint: string,
+    init: RequestInit = {},
+    accept = ACCEPT_V1,
+  ): Promise<Record<string, unknown>> {
+    const headers = new Headers(init.headers);
+    headers.set("Authorization", `Bearer ${this.accessToken}`);
+    headers.set("Accept", accept);
+    if (init.body !== undefined) headers.set("Content-Type", "application/json");
+
+    const response = await fetch(`${this.apiBaseUrl}${endpoint}`, {
       ...init,
-      headers: {
-        Authorization: `Bearer ${this.accessToken}`,
-        Accept: ACCEPT,
-        "Content-Type": "application/json",
-        ...init.headers,
-      },
+      headers,
     });
 
     if (!response.ok) {
@@ -124,7 +190,21 @@ function realityDataFrom(payload: Record<string, unknown>, error: string): Reali
   return realityData as RealityData;
 }
 
-function objectValue(value: unknown): Record<string, unknown> | undefined {
+function jobFrom(payload: Record<string, unknown>): RealityModelingJob {
+  const job = objectValue(payload.job) ?? payload;
+  if (
+    typeof job.id !== "string" ||
+    typeof job.state !== "string" ||
+    typeof job.type !== "string" ||
+    typeof job.iTwinId !== "string" ||
+    !objectValue(job.specifications)
+  ) {
+    throw new Error("Reality Modeling response did not include a valid job.");
+  }
+  return job as unknown as RealityModelingJob;
+}
+
+export function objectValue(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : undefined;
