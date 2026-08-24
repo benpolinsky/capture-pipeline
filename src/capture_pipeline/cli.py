@@ -67,7 +67,7 @@ def upload_command(
     photo_path: Path = typer.Argument(..., exists=True, readable=True),
     itwin_id: str = typer.Option(..., "--itwin-id", envvar="ITWIN_ID"),
     name: str = typer.Option(..., "--name", help="Display name for the CCImageCollection."),
-    prefix: str = typer.Option("images", "--prefix", help="Blob path prefix for uploaded photos."),
+    prefix: str = typer.Option("", "--prefix", help="Optional blob path prefix for uploaded photos."),
     access_token: str | None = typer.Option(
         None,
         "--access-token",
