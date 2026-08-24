@@ -5,7 +5,7 @@ const DEFAULT_SCOPE = "itwin-platform";
 export async function getAccessToken(): Promise<string> {
   const explicitToken = process.env.ITWIN_ACCESS_TOKEN?.trim();
   if (explicitToken) {
-    return explicitToken;
+    return stripBearerPrefix(explicitToken);
   }
 
   const clientId = process.env.ITWIN_CLIENT_ID?.trim();
@@ -27,5 +27,9 @@ export async function getAccessToken(): Promise<string> {
     throw new Error("Bentley sign-in completed without returning an access token.");
   }
 
-  return token;
+  return stripBearerPrefix(token);
+}
+
+function stripBearerPrefix(token: string): string {
+  return token.replace(/^Bearer\s+/i, "").trim();
 }
