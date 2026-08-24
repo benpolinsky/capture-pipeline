@@ -17,7 +17,7 @@ This bootstrap implements stages 1–2 only. Uploading does **not** submit a Rea
 ## Requirements
 
 - macOS (the CLI should also work on Linux/Windows)
-- Node.js 20+
+- Node.js 22+
 - A Bentley iTwin Platform application registered as **Desktop/Mobile**
 - The application's redirect URI configured for the local callback used by Bentley's CLI authorization client (default: `http://localhost:3000/signin-callback`)
 
