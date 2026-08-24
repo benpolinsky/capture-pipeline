@@ -99,7 +99,7 @@ def upload_files(
     container_url: str,
     files: Iterable[Path],
     root: Path,
-    prefix: str = "images",
+    prefix: str = "",
     on_uploaded: Callable[[Path, str], None] | None = None,
 ) -> int:
     resolved_root = root.expanduser().resolve()
