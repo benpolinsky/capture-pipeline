@@ -17,14 +17,16 @@ export async function getAccessToken(): Promise<string> {
 
   const authClient = new NodeCliAuthorizationClient({
     clientId,
-    scope: process.env.ITWIN_SCOPE?.trim() || DEFAULT_SCOPE,
+    scope: "itwin-platform",
     redirectUri: process.env.ITWIN_REDIRECT_URI?.trim() || undefined,
   });
 
   await authClient.signIn();
   const token = await authClient.getAccessToken();
   if (!token) {
-    throw new Error("Bentley sign-in completed without returning an access token.");
+    throw new Error(
+      "Bentley sign-in completed without returning an access token.",
+    );
   }
 
   return stripBearerPrefix(token);
