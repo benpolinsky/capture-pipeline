@@ -11,11 +11,11 @@
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/cli.ts",
     "capture": "tsx src/cli.ts",
-    "test": "node --import tsx --test tests/**/*.test.ts",
+    "test": "node --import tsx --test tests/*.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "dependencies": {
     "@azure/storage-blob": "^12.33.0",
