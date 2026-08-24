@@ -3,7 +3,13 @@
 import { parseArgs } from "node:util";
 import { getAccessToken } from "./auth.js";
 import { BentleyClient, uploadFiles } from "./bentley.js";
+import { getBentleyConfig } from "./config.js";
 import { discoverPhotos, inspectPhotoSet, summarize } from "./photos.js";
+import {
+  getReconstructionOutputs,
+  isExportFormat,
+  processImageCollection,
+} from "./reality-modeling.js";
 
 async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
@@ -15,7 +21,7 @@ async function main(): Promise<void> {
 
   if (command === "auth") {
     await getAccessToken();
-    console.log("Authenticated with Bentley.");
+    console.log(`Authenticated with Bentley (${getBentleyConfig().environment}).`);
     return;
   }
 
@@ -64,9 +70,7 @@ async function main(): Promise<void> {
     const name = values.name?.trim();
     if (!name) throw new Error("upload requires --name <display-name>.");
 
-    const itwinId = values["itwin-id"]?.trim() || process.env.ITWIN_ID?.trim();
-    if (!itwinId) throw new Error("Set ITWIN_ID or pass --itwin-id <id>.");
-
+    const itwinId = resolveITwinId(values["itwin-id"]);
     const photos = await inspectPhotoSet(photoPath);
     const summary = summarize(photos);
     if (summary.needsConversionCount) {
@@ -114,13 +118,104 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (command === "process") {
+    const { values, positionals } = parseArgs({
+      args,
+      allowPositionals: true,
+      options: {
+        name: { type: "string" },
+        "itwin-id": { type: "string" },
+        format: { type: "string", default: "3DTiles" },
+      },
+    });
+
+    const imageCollectionId = requirePositional(positionals, "CCImageCollection id");
+    const itwinId = resolveITwinId(values["itwin-id"]);
+    const name = values.name?.trim() || `Capture ${imageCollectionId.slice(0, 8)}`;
+    const format = values.format?.trim() || "3DTiles";
+    if (!isExportFormat(format)) {
+      throw new Error(`Unsupported output format: ${format}.`);
+    }
+
+    const config = getBentleyConfig();
+    console.log(
+      `Submitting Reality Modeling v2 pipeline to ${config.environment}. Processing may consume Bentley processing units.`,
+    );
+
+    const token = await getAccessToken();
+    const client = new BentleyClient(token);
+    const result = await processImageCollection(client, {
+      iTwinId: itwinId,
+      imageCollectionId,
+      name,
+      format,
+      onEvent: ({ stage, jobId, state, percentage }) => {
+        const progress = percentage === undefined ? "" : ` ${Math.round(percentage)}%`;
+        console.log(`${stage}: ${state}${progress} (${jobId})`);
+      },
+    });
+
+    console.log("Reality Modeling pipeline completed successfully.");
+    console.log(`Image-properties scene: ${result.sourceSceneId}`);
+    console.log(`Calibrated scene: ${result.calibratedSceneId}`);
+    console.log(`Reconstruction job: ${result.reconstructionJob.id}`);
+    console.log(
+      `Outputs: ${JSON.stringify(getReconstructionOutputs(result.reconstructionJob), null, 2)}`,
+    );
+    return;
+  }
+
+  if (command === "status") {
+    const { values, positionals } = parseArgs({
+      args,
+      allowPositionals: true,
+      options: { json: { type: "boolean", default: false } },
+    });
+    const jobId = requirePositional(positionals, "job id");
+    const token = await getAccessToken();
+    const client = new BentleyClient(token);
+    const job = await client.getRealityModelingJob(jobId);
+    let progress;
+
+    if (!isTerminalState(job.state)) {
+      progress = await client.getRealityModelingJobProgress(jobId);
+    }
+
+    if (values.json) {
+      console.log(JSON.stringify({ job, progress }, null, 2));
+      return;
+    }
+
+    console.log(`Job: ${job.id}`);
+    console.log(`Type: ${job.type}`);
+    console.log(`State: ${job.state}`);
+    if (job.name) console.log(`Name: ${job.name}`);
+    if (progress?.percentage !== undefined) {
+      console.log(`Progress: ${Math.round(progress.percentage)}%`);
+    }
+    if (job.state === "Success") {
+      console.log(`Outputs: ${JSON.stringify(job.specifications.outputs, null, 2)}`);
+    }
+    return;
+  }
+
   throw new Error(`Unknown command: ${command}`);
+}
+
+function resolveITwinId(argument: string | undefined): string {
+  const itwinId = argument?.trim() || process.env.ITWIN_ID?.trim();
+  if (!itwinId) throw new Error("Set ITWIN_ID or pass --itwin-id <id>.");
+  return itwinId;
 }
 
 function requirePositional(positionals: string[], label: string): string {
   const value = positionals[0]?.trim();
   if (!value) throw new Error(`Missing ${label}.`);
   return value;
+}
+
+function isTerminalState(state: string): boolean {
+  return state === "Success" || state === "Failed" || state === "Cancelled";
 }
 
 function formatBytes(bytes: number): string {
@@ -142,13 +237,17 @@ Usage:
   capture auth
   capture inspect <photos> [--json]
   capture upload <photos> --name <name> [--itwin-id <id>] [--prefix <path>] [--dry-run]
+  capture process <cc-image-collection-id> [--name <name>] [--itwin-id <id>] [--format 3DTiles]
+  capture status <job-id> [--json]
 
-Environment:
+Environment (.env is loaded automatically):
   ITWIN_CLIENT_ID      Bentley Desktop/Mobile application client id
-  ITWIN_ID             Default iTwin id for uploads
+  ITWIN_ID             Default iTwin id
+  ITWIN_ENV            prod (default) or qa
   ITWIN_REDIRECT_URI   Optional localhost OAuth callback override
-  ITWIN_SCOPE          Optional scope override (default: itwin-platform)
   ITWIN_ACCESS_TOKEN   Optional explicit token; bypasses browser auth
+  ITWIN_API_BASE_URL   Optional API base URL override
+  ITWIN_ISSUER_URL     Optional OAuth issuer URL override
 `);
 }
 
