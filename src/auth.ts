@@ -1,6 +1,5 @@
 import { NodeCliAuthorizationClient } from "@itwin/node-cli-authorization";
-
-const DEFAULT_SCOPE = "itwin-platform";
+import { getBentleyConfig } from "./config.js";
 
 export async function getAccessToken(): Promise<string> {
   const explicitToken = process.env.ITWIN_ACCESS_TOKEN?.trim();
@@ -15,9 +14,11 @@ export async function getAccessToken(): Promise<string> {
     );
   }
 
+  const config = getBentleyConfig();
   const authClient = new NodeCliAuthorizationClient({
     clientId,
     scope: "itwin-platform",
+    issuerUrl: config.issuerUrl,
     redirectUri: process.env.ITWIN_REDIRECT_URI?.trim() || undefined,
   });
 
